@@ -1,0 +1,136 @@
+
+# maketicket - the master
+# makevalrel
+# mergeticket
+
+. svne
+
+in_arg_one=$1
+in_arg_two=$2
+in_arg_three=$3
+doingThis=
+scriptName=$0
+
+
+if echo "$scriptName" | egrep -q "makevalrel"  2>/dev/null ; then
+   doingThis='makevalrel'
+elif echo "$scriptName" | egrep -q "maketicket"  2>/dev/null ; then
+   doingThis='maketicket'
+elif echo $scriptName | egrep -q "mergeticket" 2>/dev/null  ; then
+   doingThis='mergeticket'
+   echo mergeticket not implemented.  Aborting
+   exit 1
+else
+   echo "Do nothing.  Aborting"
+   exit 1
+fi;
+
+#
+# Arg assignments
+#
+
+if [ $doingThis = "makevalrel" ] ; then
+   comment=$in_arg_one
+elif [ $doingThis = 'maketicket' ] ; then
+   if [ ! "$in_arg_one" ] ; then
+      echo "ERROR $0 : ticket name, like t8888, is required to make a new branch"
+      exit 1
+   fi;
+   ticket=$in_arg_one
+   if [ ! "$in_arg_two" ] ; then
+      comment="branch point for $ticket"
+   else
+      comment=$in_arg_two
+   fi;
+elif [ $doingThis = 'mergeticket' ] ; then
+   if [ ! "$in_arg_one" ] ; then
+      echo "ERROR $0 : ticket name, like t8888, is required to make a new branch"
+      exit 1
+   fi;
+fi;
+
+#
+# Initialize all environmental values based one the current working directory.
+#
+
+if [ $doingThis = "makevalrel" ] ; then
+   if ! setsvn ; then
+      echo Fail setsvn
+      exit 1;
+   fi;
+elif [ $doingThis = 'maketicket' ] ; then
+   if ! setsvn -n $ticket ; then
+      echo Fail setsvn
+      exit 1;
+   fi;
+elif [ $doingThis = 'mergeticket' ] ; then
+   if ! setsvn -t $ticket ; then
+      echo Fail setsvn
+      exit 1;
+   fi;   
+fi;
+
+status=$(svn status -u $__WDPATH_ROOT | wc -l);
+if [ "$status" -ne "1" ] ; then
+   warning="WARNING!  svn status -u on \"$__WDPATH_ROOT\" is not quiet: "$status
+fi;
+
+if [ $doingThis = "makevalrel" ] ; then
+   
+   valrel='VALREL_'$(date +"%Y%m%d_%H%M")
+      
+   if [ ! "$comment" ] ; then
+      comment="create $valrel trunk v'$__SVN_PRJ_TRUNK_REL"
+   fi;
+   
+   echo "            $warning
+  You are about to create a VALREL from the repo trunk
+
+    project name  :  $__PRJ
+   trunk version  :  $__SVN_PRJ_TRUNK_REL
+     VALREL name  :  $valrel
+         comment  :  $comment
+         command  :  svn cp  $__SVN_PRJ_TRUNK_PATH  $__SVN_PRJ_TAGS_PATH/${valrel}  -m\"$comment\"
+"
+   echo -n " =====> IF this is correct, press return, otherwise ABORT now..."
+   read
+   svn cp  $__SVN_PRJ_TRUNK_PATH  $__SVN_PRJ_TAGS_PATH/${valrel}  -m"$comment"
+   
+elif [ $doingThis = "maketicket" ] ; then
+
+   datestamp=$(date +"%Y%m%d")
+   echo "            $warning
+  You are about to create a branch from the repo trunk
+
+    project name  :  $__PRJ
+   trunk version  :  $__SVN_PRJ_TRUNK_REL
+     ticket name  :  $ticket
+         comment  :  $comment $datestamp
+         command  :  svn cp  $__SVN_PRJ_TRUNK_PATH  $__SVN_TICKET_TRUNK_PATH  -m\"$comment $datestamp\"
+"
+   echo -n " =====> IF this is correct, press return, otherwise ABORT now..."
+   read
+   svn cp  $__SVN_PRJ_TRUNK_PATH  $__SVN_TICKET_TRUNK_PATH  -m"$comment $datestamp"
+   
+elif [ $doingThis = "mergeticket" ] ; then
+   
+   datestamp=$(date +"%Y%m%d")
+   comment=comment $datestamp
+   echo "            $warning
+  You are about to merge a ticket into the working directory
+  No collisions are allowed
+  There is no commit
+
+           project name  :  $__PRJ
+          trunk version  :  $__SVN_PRJ_TRUNK_REL
+            ticket name  :  $ticket
+ branch 'oncopy' version :  $__SVN_TICKET_TRUNK_COPYON_REL
+                comment  :  $comment
+                command  :  svn merge  $__SVN_PRJ_TRUNK_PATH  $__SVN_PRJ_BRANCHES_PATH/$ticket -r$__SVN_TICKET_TRUNK_COPYON_REL:HEAD -m\"$comment\"
+"
+   echo -n " =====> IF this is correct, press return, otherwise ABORT now..."
+   read
+   svn merge --dry-run $__SVN_PRJ_TRUNK_PATH $__SVN_PRJ_BRANCH_PATH/$ticket -r$ATH${valrel} -m"$comment"
+   
+fi;
+

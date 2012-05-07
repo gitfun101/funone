@@ -1,0 +1,154 @@
+. $TWIG_SUPPORT
+
+# Configure your options
+   # Describe your monitor screen for auto tail adjustments
+   monitor_rows=50
+   monitor_cols=140
+
+   # Tail -n X; define the default X value.  mon invoked without
+   # the second paramter defaults to -n X, and then begins 
+   # auto tail adjustments
+   default_tail_lines=10
+
+   # Max lines to display
+   max_lines=25
+
+   # Refresh interval
+   sleep_seconds=5
+
+   NEW_LINE=1
+
+#
+# NEW_LINE.  debug and Dumper in Globalview windup having no newlines. 
+# To "restore" newlines encode them in the perl file.  sed will 
+# restore them here in this monitor script and you'll be able to 
+# view pretty Dumper structures.
+# Example, (in the perl file): 
+# 
+#  use Data::Dumper;
+#  my $txt = Dumper($obj);
+#  $txt =~ s!\n!NEW_LINE!g;
+#  debug("$txt");
+#
+# or
+#
+#  use Data::Dumper;
+#  my @txt = grep { s!\n!NEW_LINE!g } Dumper($obj);
+#  debug("$txt[0]");
+#
+# Newlines restore in such manner are not considered 
+# for auto tail adjustments.
+#
+if [ "$1" ] ; then
+  if  echo "$1" | egrep -q "^[0-9]+$" 2>/dev/null ; then
+      force_lines=$1
+      shift
+  fi;
+fi;
+
+logdir=''
+if ! logdir=$(twig_apache_logdir) ; then
+  echo "$SP $logdir"
+  return 1
+fi;
+
+# arg == 1; project string, as in sun, med ...
+# arg == 2; 1 prj string, 2 tail -n
+# arg == 3; 1 prj string, 2 tail -n, 3 grep tail
+
+# Log files need to be mapped in a magic file.  They seem irregular.
+if [ ! "$1" ] ; then
+  echo "$SP Project?  Aborting.  Bye."
+  exit 1;
+fi;
+
+lines=$default_tail_lines
+lineadj=
+setline=0
+string=
+
+if [ "$2" ] ; then 
+  lines=$2
+  setline=1
+fi
+
+if [ "$3" ] ; then
+  string=$3;
+fi;
+
+((char_capacity = monitor_rows * monitor_cols))
+((char_3q_capacity = 3 * monitor_rows * monitor_cols / 4  ))
+((char_half_capacity =  monitor_rows * monitor_cols / 2  ))
+
+
+((build_count = monitor_cols - 30)) 
+while [ $build_count -gt 0 ] ; do
+  header=${header}'='
+  (( build_count =  build_count - 1 ))
+done
+
+file=$( ls $logdir/*$1* -1rt | grep -ri $1 | grep error |  tail -n 1 )
+#file=$( ls $logdir/*$1* -1rt | grep -ri $1 |  tail -n 1 )
+if [ "$file" ] ; then
+   iter=1
+   up=0
+   down=0
+   quick_adjust=0
+   while true ; do
+      clear
+      echo 
+      echo
+      if [ "$string" ] ; then
+	 output="$(tail -n $lines $file | grep -i $string)"
+      else
+	 if [ "$force_lines" ] ; then
+	   lines=$force_lines
+	 fi;
+	 output="$(tail -n $lines $file)"
+      fi;
+      echo $header mon $iter \( -n $lines \)
+      if [ "$NEW_LINE" -a "$NEW_LINE" -eq 1 ] ; then
+	 echo "$output" | sed 's/NEW_LINE/\n/g'
+      else
+	 echo "$output"
+      fi;
+
+      echo === $file === \( $iter -n $lines $char_capacity $num_chars  \)
+
+      # limit to screen capacity
+      if [ $setline -eq 0 ] ; then
+	 num_chars=$(echo $output | wc -m )
+         num_lines=$lines
+	 adjustment=0
+	 if [ $num_lines -gt $max_lines ] ; then
+	    adjustment=-1
+	 fi;
+	 if [ $num_chars -gt $char_capacity ] ; then
+	    quick_adjust=1
+	    adjustment=-3
+	 fi;
+	 # TODO hysteresis 
+	 if [ $num_chars -lt $char_half_capacity -a $adjustment -ne -1 -a $num_lines -lt $max_lines ] ; then
+	    if [ $quick_adjust -eq 0 ] ; then
+	       adjustment=4
+	    else
+	       adjustment=1
+	    fi;
+	 fi;
+	 (( lines = lines + adjustment ))
+	 if [ $lines -lt 1 ] ; then
+	   lines=1;
+	   adjustment=0
+	 fi;
+	 if [ $adjustment -ne 0 ] ; then
+	    echo "Adj $adjustment. chars - capacity  $num_chars - $char_capacity"
+	 fi;
+      fi;
+      ((iter = iter + 1))
+      sleep $sleep_seconds 
+   done
+fi;
+
+   
+
+

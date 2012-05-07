@@ -1,0 +1,197 @@
+#!/usr/local/bin/bash
+roach=1
+roach=0
+. defaults.sh
+
+#! ------------------------------------------------------------------------------
+#! makeconf
+#!
+#! - Automatically generate an httpd.conf file for a new globalview site.
+#!
+#! D. DeZurik :: November 2006
+#! ------------------------------------------------------------------------------
+#!
+#!
+#! #1  The following are definitions required by this tool.  These are the only
+#! data which must be configured
+#!
+
+   DEV_ROOT=/u01
+   CONFIG_DIR=conf
+   HTTP_CONFIG_TEMPLATE_NAME=TEMPLATE_httpd.conf
+   DEFAULTS_FILE_DIR=/tmp
+   DEFAULTS_FILE_NAME=makeconf_default_values
+   bounceApache="sudo /u01/apache/bin/apachectl stop &&  sleep 4 && sudo /u01/apache/bin/apachectl start"
+
+#! #2  The following are definitions wanted by this tool. The data are not 
+#! required but will eliminate some interactive steps 
+
+   nicks=( damien   jay      hugh)
+   homes=( dezuride hildenjw sheddhf)
+
+#! #3  Personalize your own copy by setting some defaults here.  The system
+#! copy will have all these set to ''
+
+   DEFAULTS_FILE=''
+   DEF_DEVELOPER=''
+   DEF_EMAIL=''
+   MYSANDBOX=''
+
+#! ------------------------------------------------------------------------------
+#! Is there a "defaults" file containing default values for this user?
+#! ------------------------------------------------------------------------------
+
+if [ "$DEFAULTS_FILE" = "" ] ; then
+  $DEFAULTS_FILE=$DEFAULTS_FILE_DIR/$DEFAULTS_FILE_NAME}_$(whoami)
+fi
+
+if [ -e $DEFAULTS_FILE ] ; then
+  echo Loading previous defaults, if any, from ${DEFAULTS_FILE}_$(whoami).
+  # getDefaults will NOT overwrite any var with a value.  Predefined vars will persist.
+  getDefaults $DEFAULTS_FILE 'DEF_DEVELOPER DEF_EMAIL MYSANDBOX MODULE SITE_URL DBUSERPASS'
+fi;
+
+#! ------------------------------------------------------------------------------
+#! Build the default values 
+#! ------------------------------------------------------------------------------
+
+devRoot="$DEV_ROOT/$MYSANDBOX"
+confDir=$devRoot/$CONFIG_DIR
+confTemplate=$confDir/$HTTP_CONFIG_TEMPLATE_NAME
+
+if [ ! -d $devRoot 2>/dev/null ] ; then
+  echo Your sandbox does not exist [$devRoot].
+fi
+
+# get developer
+echo -n "DEVELOPER [$DEF_DEVELOPER]? "
+read developer
+if [ "$developer" = "" ]; then
+	_developer=$DEF_DEVELOPER
+else
+	_developer=$developer
+fi
+
+# get email
+echo -n "EMAIL ADDRESS [$DEF_EMAIL]? "
+read email
+if [ "$email" = "" ]; then
+	_email=$DEF_EMAIL
+else
+	_email=$email
+fi
+
+
+# get module
+echo -n "MODULE? [$MODULE] "
+read _module
+if [ "$_module" = "" ]; then
+	if [ ! "$MODULE" ] ; then
+	   echo "[ABORT] you must enter the module"
+	   saveDefaults $DEFAULTS_FILE "DEF_DEVELOPER $_developer DEF_EMAIL $_email"
+	   exit 1
+	else
+	  _module=$MODULE
+	fi;
+fi
+
+# Help me out here...
+for anybody in ${nicks[*]} ; do
+  bestshot='/u01/globalview_projects_'${anybody}/conf/${_module}'.httpd.conf'
+  if [ ! -r $bestshot ] ; then
+    if [ ! $anybody = "hugh" ] ; then
+       echo \($anybody doesn\'t have an httpd.conf file. So what\'s new?.\)
+    fi;
+    continue;
+  fi;
+  egrep 'SeverName|ServerAlias' $bestshot 
+done;
+
+
+# get lowest level site domain
+echo -n "(just the xyz.com part, user.dev. will be prepended) SITE_URL? [$SITE_URL] "
+read _site_url
+if [ "$_site_url" = "" ]; then
+	if [ ! "$SITE_URL" ] ; then
+	   echo "[ABORT] you must enter a site url"
+	   saveDefaults $DEFAULTS_FILE "DEF_DEVELOPER $_developer DEF_EMAIL $_email MODULE $_module"
+	   exit 1
+	else
+	  _site_url=$SITE_URL
+	fi;
+fi
+
+if echo $_site_url | egrep -qi '^www' ; then
+  echo -n "Are you sure you want the 'www' prefix on the url? [y] "  
+  read junk
+  if ! [  "$junk" = "" -o "$junk" = "y"  ] ; then
+     saveDefaults $DEFAULTS_FILE "DEF_DEVELOPER $_developer DEF_EMAIL $_email MODULE $_module"
+     exit 1
+  fi;
+fi;
+
+
+# Get that secret stuff
+echo -n "DBUSERPASS [$_module]? "
+read _dbuserpass
+if [ "$_dbuserpass" = "" ]; then
+	_dbuserpass=$_module
+fi
+
+if [ ! -d "$devRoot/$_module" ] ; then
+	echo "[ABORT] The module '$_module' does not exist in '$devRoot'. Check it out from cvs/svn first"
+        saveDefaults $DEFAULTS_FILE "DEF_DEVELOPER $_developer DEF_EMAIL $_email  MODULE $_module SITE_URL $_site_url "
+	exit 1
+fi
+
+# Make sure conf file doesn't already exist 
+newConfFile="$confDir/$_module"".httpd.conf"
+if [ -f $newConfFile ]; then
+	echo -n "'newConfFile' $newConfFile already exists.  Delete it? y/n "
+	read _delete_it
+	if [ "$_delete_it" = "y" ] ; then
+	  rm $newConfFile
+	else
+	   echo "[ABORT] '$newConfFile' already exists. Delete first."
+	   exit 1
+        fi;
+fi
+
+# Build patern substitution string
+sedstr="s/DEVELOPER/$_developer/g;s/EMAIL_ADDY/$_email/g;s/SITE_URL/$_site_url/g;s/SOURCECODE/$_module/g;s/DBUSERPASS/$_dbuserpass/g;"
+
+if [ "$roach" -eq 1 ] ; then
+  echo $sedstr
+fi
+
+# Run the substitution and create new conf file.
+sed $sedstr $confTemplate > $newConfFile
+status=$?
+
+chmod 644 $newConfFile
+
+ls -la $confDir
+
+if [ "$status" != "0" ]; then
+	echo "[ERROR] Sed failed, see output above for specifics"
+	rm $newConfFile
+        saveDefaults $DEFAULTS_FILE "DEF_DEVELOPER $_developer DEF_EMAIL $_email  MODULE $_module SITE_URL $_site_url "
+	exit 1
+fi
+
+echo -n "Shall I bounce apache? [y] "
+read bounce
+if [ "$bounce" = "" ]; then
+	_bounce="y"
+fi
+
+if [ "$_bounce" = "y" -o "$bounce" = "y" ] ; then
+	echo "[RESTART APACHE...]"
+	eval "$bounceApache"
+fi
+
+saveDefaults $DEFAULTS_FILE "DEF_DEVELOPER $_developer DEF_EMAIL $_email  MODULE $_module SITE_URL $_site_url "
+
+echo "[DONESKY]"
+
+exit 0

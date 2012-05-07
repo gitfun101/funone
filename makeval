@@ -1,0 +1,62 @@
+# makeval - MAKEVALrel - create a VALREL from the trunk of this project
+#
+# If in dev directory tree with a proper repo name, such as 'DEV01/u01/globalview_projects_hugh/AERAS_402_404', 
+# executing makeval generates the following command:
+#     svn cp $SVNROOT/repo_name/trunk $SVNROOT/repo_name/tags/VALREL_datetime -m"comment"
+# where
+#     datetime - YYYYMMDD_HHMM  (HH == 24 hour clock, MM == mins)
+#     comment  - quoted comment on the command line or 'create VALREL_YYYYMMDD_HHMM trunk v ###'
+
+roach=1
+roach=0
+
+DEV_TEMPLATE='/u01/globalview_projects_'
+svnroot=$SVNROOT   # from your env
+
+if [ $1 ] ; then
+   comment="$1"
+fi;
+
+if [ ! $svnroot ] ; then 
+   echo Environmental SVNROOT is not defined. Did you rename and shorten it?  Aborting
+   exit 1
+fi;
+
+mypwd=$(pwd)
+repo=$(echo $mypwd | sed -n 's!'$DEV_TEMPLATE'[^/ ]*/\([^ /]*\).*$!\1!p')
+
+# I couldn't get the $? to operate correctly with svn info, so I count lines
+info_status=$(svn info $svnroot/$repo/trunk 2>/dev/null | wc -l)
+if  [ $info_status -lt 8 ] ; then
+  echo No repo seems to exist at "$svnroot/$repo/trunk"
+  exit 1
+fi;
+
+myver=$(svn info $svnroot/$repo/trunk | sed -n 's!Revision: \([0-9]\{1,3\}\)!\1!gp')
+
+valrel='VALREL_'$(date +"%Y%m%d_%H%M")
+
+status=$(svn status | wc -l);
+if [ "$status" -ne "0" ] ; then
+   warning="WARNING!  svn status on the current working directory is not quiet: "$status
+fi;
+
+if [ ! "$comment" ] ; then
+   comment='create '$valrel' trunk v'$myver
+fi;
+
+echo "            $warning
+  Your are about to create a VALREL
+
+    project name  :  $svnroot/$repo
+   trunk version  :  $myver
+     VALREL name  :  $valrel
+         comment  :  $comment
+         command  :  svn cp  SVNROOT/$repo/trunk  SVNROOT/$repo/tags/${valrel}  -m\"$comment\"
+"
+
+echo -n " =====> IF this is correct, press return, otherwise ABORT now..."
+read
+
+svn cp $svnroot/$repo/trunk $svnroot/$repo/tags/${valrel} -m"$comment"
+
